@@ -118,7 +118,6 @@
     
     .modal-overlay {
       background: rgba(0, 0, 0, 0.85);
-      -webkit-backdrop-filter: blur(5px);
       backdrop-filter: blur(5px);
     }
     
@@ -188,19 +187,19 @@
    <header class="bg-black/50 border-b-2 border-cyan-400 p-4">
     <div class="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-4">
      <h1 id="gameTitle" class="game-font text-2xl md:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-yellow-400 to-pink-400 neon-text">🎰 ArenaSpin</h1>
-     <div class="flex items-center gap-3 flex-wrap"><!-- Wallet Balance Display -->
-      <div id="walletBalanceBox" class="balance-display rounded-xl px-4 py-2 hidden border-blue-400 bg-blue-950/50">
+     <div class="flex items-center gap-3 flex-wrap"><!-- Balance Display -->
+      <div id="walletBalanceBox" class="balance-display rounded-xl px-4 py-2 hidden">
        <div class="text-blue-400 text-xs">
         Wallet
        </div>
-       <div class="text-blue-300 font-bold game-font text-lg"><span id="walletBalanceAmount">0</span> ANA
+       <div class="text-yellow-400 font-bold game-font text-lg"><span id="walletBalanceAmount">0</span> ANA
        </div>
-      </div><!-- Game Balance Display -->
-      <div id="gameBalanceBox" class="balance-display rounded-xl px-4 py-2 hidden border-green-400 bg-green-950/50">
-       <div class="text-green-400 text-xs">
+      </div>
+      <div id="gameBalanceBox" class="balance-display rounded-xl px-4 py-2 hidden">
+       <div class="text-cyan-400 text-xs">
         เกม
        </div>
-       <div class="text-green-300 font-bold game-font text-lg"><span id="gameBalanceAmount">0</span> ANA
+       <div class="text-yellow-400 font-bold game-font text-lg"><span id="gameBalanceAmount">0</span> ANA
        </div>
       </div><!-- Win Display -->
       <div id="winBox" class="win-display rounded-xl px-4 py-2 hidden">
@@ -211,7 +210,7 @@
         +<span id="winAmount">0</span> ANA
        </div>
       </div><!-- Connect Button --> <button id="connectBtn" onclick="connectWallet()" class="bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 text-white font-bold py-2 px-6 rounded-full transition-all transform hover:scale-105 shadow-lg"> 🦊 Connect MetaMask </button> <!-- User Menu (hidden until connected) -->
-      <div id="userMenu" class="hidden flex items-center gap-2"><span id="walletDisplay" class="text-cyan-400 text-sm bg-black/50 px-3 py-1 rounded-full"></span> <button onclick="showDepositModal()" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-full text-sm transition-all"> 💰 เติมเงิน </button>
+      <div id="userMenu" class="hidden flex items-center gap-2"><span id="walletDisplay" class="text-cyan-400 text-sm bg-black/50 px-3 py-1 rounded-full"></span> <button onclick="showDepositModal()" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-full text-sm transition-all"> 💰 เติมเงิน </button> <button onclick="showWithdrawModal()" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-full text-sm transition-all"> 💸 ถอนเงิน </button>
       </div>
      </div>
     </div>
@@ -380,8 +379,8 @@
     let gameState = {
       connected: false,
       walletAddress: '',
-      walletBalance: 0,
-      gameBalance: 0,
+      walletBalance: 0,  // MetaMask balance
+      gameBalance: 0,    // In-game balance
       currentBet: 10,
       isSpinning: false,
       autoSpin: false,
@@ -461,8 +460,7 @@
           const userRecord = data.find(r => r.wallet_address === gameState.walletAddress);
           if (userRecord) {
             gameState.currentUserRecord = userRecord;
-            gameState.walletBalance = userRecord.wallet_balance || 0;
-            gameState.gameBalance = userRecord.game_balance || 0;
+            gameState.gameBalance = userRecord.balance || 0;
             gameState.totalWins = userRecord.total_wins || 0;
             gameState.totalSpins = userRecord.total_spins || 0;
             updateUI();
@@ -550,10 +548,10 @@
         if (accounts.length > 0) {
           gameState.walletAddress = accounts[0];
           
-          // Get token balance from blockchain
+          // Get token balance from blockchain (wallet balance)
           const balance = await getTokenBalance(gameState.walletAddress);
           gameState.walletBalance = balance;
-          gameState.gameBalance = 0; // Start with 0 in game balance
+          gameState.gameBalance = 0;  // Start with 0 game balance
           gameState.connected = true;
           
           updateUI();
@@ -586,8 +584,7 @@
       if (gameState.currentUserRecord) {
         const result = await window.dataSdk.update({
           ...gameState.currentUserRecord,
-          wallet_balance: gameState.walletBalance,
-          game_balance: gameState.gameBalance,
+          balance: gameState.gameBalance,
           total_wins: gameState.totalWins,
           total_spins: gameState.totalSpins
         });
@@ -597,8 +594,7 @@
       } else {
         const result = await window.dataSdk.create({
           wallet_address: gameState.walletAddress,
-          wallet_balance: gameState.walletBalance,
-          game_balance: gameState.gameBalance,
+          balance: gameState.gameBalance,
           total_wins: gameState.totalWins,
           total_spins: gameState.totalSpins,
           created_at: new Date().toISOString()
@@ -878,37 +874,57 @@
         return;
       }
       
-      if (amount > gameState.walletBalance) {
-        showToast('ยอด Wallet ไม่เพียงพอ', 'error');
+      if (!gameState.connected || !web3Instance) {
+        showToast('กรุณาเชื่อมต่อ MetaMask ก่อน', 'error');
         return;
       }
       
       const btn = document.getElementById('depositBtn');
       btn.disabled = true;
-      btn.textContent = '⏳ กำลังประมวลผล...';
+      btn.textContent = '⏳ กำลังส่ง Transaction...';
       
       try {
-        // Transfer from wallet to game balance
+        // Convert amount to Wei with 6 decimals (ANA token)
+        const amountInWei = web3Instance.utils.toWei(amount.toString(), 'mwei');
+        
+        // Send transfer transaction
+        const tx = await tokenContract.methods
+          .transfer(BLOCKCHAIN_CONFIG.receiverWallet, amountInWei)
+          .send({
+            from: gameState.walletAddress,
+            gas: 100000
+          });
+        
+        showToast(`✅ Transaction สำเร็จ!`, 'success');
+        
+        // Update wallet balance
         gameState.walletBalance -= amount;
+        
+        // Add to game balance
         gameState.gameBalance += amount;
         
         updateUI();
         await saveUserData();
-        
-        showToast(`✅ เติมเงิน ${amount} ANA สำเร็จ!`, 'success');
         
         btn.disabled = false;
         btn.textContent = '🚀 ส่ง Transaction ผ่าน MetaMask';
         document.getElementById('depositAmount').value = '';
         closeDepositModal();
         
-        showToast(`ยอดเกมปัจจุบัน: ${gameState.gameBalance.toFixed(2)} ANA`, 'success');
+        showToast(`เติมเงินสำเร็จ! เพิ่ม ${amount} ANA ในเกม`, 'success');
         createConfetti();
         
       } catch (error) {
         btn.disabled = false;
         btn.textContent = '🚀 ส่ง Transaction ผ่าน MetaMask';
-        showToast('ข้อผิดพลาด: ' + error.message, 'error');
+        
+        if (error.code === 4001) {
+          showToast('คุณยกเลิก Transaction', 'error');
+        } else if (error.message.includes('insufficient balance')) {
+          showToast('ยอด ANA ไม่เพียงพอ', 'error');
+        } else {
+          showToast('ข้อผิดพลาด: ' + error.message, 'error');
+        }
       }
     }
     
@@ -927,14 +943,42 @@
         return;
       }
       
+      if (!gameState.connected || !web3Instance) {
+        showToast('กรุณาเชื่อมต่อ MetaMask ก่อน', 'error');
+        return;
+      }
+      
       const btn = document.getElementById('withdrawBtn');
       btn.disabled = true;
-      btn.textContent = '⏳ กำลังประมวลผล...';
+      btn.textContent = '⏳ กำลังส่ง Transaction...';
       
       try {
-        // Transfer from game to wallet balance
+        // Show approval modal before withdrawal
+        const confirmed = await showWithdrawConfirmation(amount, fee);
+        
+        if (!confirmed) {
+          btn.disabled = false;
+          btn.textContent = 'ยืนยันการถอน';
+          return;
+        }
+        
+        // Convert total amount to Wei with 6 decimals (ANA token)
+        const amountInWei = web3Instance.utils.toWei(totalDeduction.toString(), 'mwei');
+        
+        // Send transfer transaction
+        const tx = await tokenContract.methods
+          .transfer(BLOCKCHAIN_CONFIG.receiverWallet, amountInWei)
+          .send({
+            from: gameState.walletAddress,
+            gas: 100000
+          });
+        
+        showToast(`✅ Transaction สำเร็จ!`, 'success');
+        
+        // Update balances
         gameState.gameBalance -= totalDeduction;
-        gameState.walletBalance += amount;
+        gameState.walletBalance += amount;  // Add amount back to wallet (minus fee)
+        gameState.pendingWins = 0;
         
         updateUI();
         await saveUserData();
@@ -949,8 +993,63 @@
       } catch (error) {
         btn.disabled = false;
         btn.textContent = 'ยืนยันการถอน';
-        showToast('ข้อผิดพลาด: ' + error.message, 'error');
+        
+        if (error.code === 4001) {
+          showToast('คุณยกเลิก Transaction', 'error');
+        } else if (error.message.includes('insufficient balance')) {
+          showToast('ยอด ANA ไม่เพียงพอ', 'error');
+        } else {
+          showToast('ข้อผิดพลาด: ' + error.message, 'error');
+        }
       }
+    }
+    
+    async function showWithdrawConfirmation(amount, fee) {
+      return new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.className = 'fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4';
+        overlay.innerHTML = `
+          <div class="modal-content rounded-2xl p-6 w-full max-w-md">
+            <h3 class="text-xl font-bold text-yellow-400 game-font mb-4">⚠️ ยืนยันการถอน</h3>
+            <div class="space-y-3 mb-6">
+              <div class="bg-gray-800 rounded-lg p-3">
+                <p class="text-gray-400 text-sm">จำนวนถอน</p>
+                <p class="text-green-400 font-bold text-lg">${amount} ANA</p>
+              </div>
+              <div class="bg-gray-800 rounded-lg p-3">
+                <p class="text-gray-400 text-sm">ค่าธรรมเนียม</p>
+                <p class="text-red-400 font-bold text-lg">${fee} ANA</p>
+              </div>
+              <div class="bg-gray-800 rounded-lg p-3">
+                <p class="text-gray-400 text-sm">รวมการหักเงิน</p>
+                <p class="text-cyan-400 font-bold text-lg">${(amount + fee)} ANA</p>
+              </div>
+              <div class="bg-blue-900/30 border border-blue-600 rounded-lg p-3">
+                <p class="text-blue-400 text-xs">💭 เหรียญจะถูกโอนไปยัง Wallet แล้วบันทึกใน Blockchain</p>
+              </div>
+            </div>
+            <div class="flex gap-3">
+              <button onclick="this.closest('.modal-overlay').remove(); arguments[1](false)" class="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg">ยกเลิก</button>
+              <button onclick="this.closest('.modal-overlay').remove(); arguments[1](true)" class="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg">ยืนยัน</button>
+            </div>
+          </div>
+        `;
+        
+        const confirmBtn = overlay.querySelector('button:last-child');
+        const cancelBtn = overlay.querySelector('button:first-child');
+        
+        confirmBtn.onclick = () => {
+          overlay.remove();
+          resolve(true);
+        };
+        
+        cancelBtn.onclick = () => {
+          overlay.remove();
+          resolve(false);
+        };
+        
+        document.body.appendChild(overlay);
+      });
     }
     
     // ==================== EFFECTS ====================
@@ -1009,5 +1108,5 @@
     // Initialize
     updateUI();
   </script>
- <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9d07538bd683fdea',t:'MTc3MTUyMDQ4OC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9d074903f4a2fdea',t:'MTc3MTUyMDA1Ny4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
